@@ -72,40 +72,15 @@ module Searchkick
               tokenizer: "standard",
               filter: ["lowercase", "asciifolding"]
             },
+            searchkick_text_search: {
+              type: "custom",
+              tokenizer: "keyword",
+              filter: ["lowercase", "asciifolding"]
+            },
             searchkick_suggest_index: {
               type: "custom",
               tokenizer: "standard",
               filter: ["lowercase", "asciifolding", "searchkick_suggest_shingle"]
-            },
-            searchkick_text_start_index: {
-              type: "custom",
-              tokenizer: "keyword",
-              filter: ["lowercase", "asciifolding", "searchkick_edge_ngram"]
-            },
-            searchkick_text_middle_index: {
-              type: "custom",
-              tokenizer: "keyword",
-              filter: ["lowercase", "asciifolding", "searchkick_ngram"]
-            },
-            searchkick_text_end_index: {
-              type: "custom",
-              tokenizer: "keyword",
-              filter: ["lowercase", "asciifolding", "reverse", "searchkick_edge_ngram", "reverse"]
-            },
-            searchkick_word_start_index: {
-              type: "custom",
-              tokenizer: "standard",
-              filter: ["lowercase", "asciifolding", "searchkick_edge_ngram"]
-            },
-            searchkick_word_middle_index: {
-              type: "custom",
-              tokenizer: "standard",
-              filter: ["lowercase", "asciifolding", "searchkick_ngram"]
-            },
-            searchkick_word_end_index: {
-              type: "custom",
-              tokenizer: "standard",
-              filter: ["lowercase", "asciifolding", "reverse", "searchkick_edge_ngram", "reverse"]
             }
           },
           filter: {
@@ -122,17 +97,7 @@ module Searchkick
             },
             searchkick_suggest_shingle: {
               type: "shingle",
-              max_shingle_size: 5
-            },
-            searchkick_edge_ngram: {
-              type: "edge_ngram",
-              min_gram: 1,
-              max_gram: 50
-            },
-            searchkick_ngram: {
-              type: "ngram",
-              min_gram: 1,
-              max_gram: 50
+              max_shingle_size: 3
             },
             searchkick_stemmer: {
               # use stemmer if language is lowercase, snowball otherwise
@@ -163,11 +128,6 @@ module Searchkick
       if options[:similarity]
         settings[:similarity] = {default: {type: options[:similarity]}}
       end
-
-      settings[:index] = {
-        max_ngram_diff: 49,
-        max_shingle_diff: 4
-      }
 
       if options[:knn]
         unless Searchkick.knn_support?
@@ -402,7 +362,14 @@ module Searchkick
 
           mapping_options.except(:highlight, :searchable, :filterable, :word).each do |type, f|
             if options[:match] == type || f.include?(field)
-              fields[type] = {type: default_type, index: true, analyzer: "searchkick_#{type}_index"}
+              analyzer = if type.start_with?("word_")
+                "searchkick_word_search"
+              elsif type.start_with?("text_")
+                "searchkick_text_search"
+              else
+                "searchkick_#{type}_index"
+              end
+              fields[type] = {type: default_type, index: true, analyzer: analyzer}
             end
           end
         end

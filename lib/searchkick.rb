@@ -144,6 +144,10 @@ module Searchkick
     @opensearch
   end
 
+  def self.serverless?
+    @serverless ||= server_info["version"]["build_flavor"] == "serverless"
+  end
+
   # TODO always check true version in Searchkick 6
   def self.server_below?(version, true_version = false)
     server_version = !true_version && opensearch? ? "7.10.2" : self.server_version

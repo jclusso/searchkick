@@ -387,8 +387,25 @@ module Searchkick
               queries_to_add << {match: {f => shared_options.merge(analyzer: "keyword")}}
               exclude_field = f
               exclude_analyzer = "keyword"
+            elsif field.match?(/\.(word|text)_(start|middle|end)\z/)
+              match = field.match(/\A(?<base>.*?)\.(?<field_type>word|text)_(?<suffix>start|middle|end)\z/)
+              field_type = match[:field_type]
+              match_type_suffix = match[:suffix]
+              base_field = match[:base]
+
+              case match_type_suffix
+              when "start"
+                queries_to_add << {prefix: {base_field => {value: term, boost: shared_options[:boost], case_insensitive: true}}}
+              when "middle"
+                queries_to_add << {wildcard: {base_field => {value: "*#{term}*", boost: shared_options[:boost], case_insensitive: true}}}
+              when "end"
+                queries_to_add << {wildcard: {base_field => {value: "*#{term}", boost: shared_options[:boost], case_insensitive: true}}}
+              end
+
+              exclude_field = base_field
+              exclude_analyzer = field_type == "word" ? "searchkick_word_search" : "searchkick_text_search"
             else
-              analyzer = field.match?(/\.word_(start|middle|end)\z/) ? "searchkick_word_search" : "searchkick_autocomplete_search"
+              analyzer = "searchkick_autocomplete_search"
               qs << shared_options.merge(analyzer: analyzer)
               exclude_analyzer = analyzer
             end
@@ -405,21 +422,24 @@ module Searchkick
 
             # boost exact matches more
             if field =~ /\.word_(start|middle|end)\z/ && searchkick_options[:word] != false
-              queries_to_add << {
-                bool: {
-                  must: {
-                    bool: {
-                      should: q2
-                    }
-                  },
-                  should: {match_type => {field.sub(/\.word_(start|middle|end)\z/, ".analyzed") => qs.first}}
+              if q2.any?
+                queries_to_add << {
+                  bool: {
+                    must: {
+                      bool: {
+                        should: q2
+                      }
+                    },
+                    should: {match_type => {field.sub(/\.word_(start|middle|end)\z/, ".analyzed") => qs.first}}
+                  }
                 }
-              }
+              end
             else
               queries_to_add.concat(q2)
             end
 
-            queries << queries_to_add
+            # Only add queries if we actually have something to add
+            queries << queries_to_add if queries_to_add.any?
 
             if options[:exclude]
               must_not.concat(set_exclude(exclude_field, exclude_analyzer))
@@ -1145,16 +1165,16 @@ module Searchkick
                   case op
                   when :gt
                     # TODO always use gt in Searchkick 6
-                    below90? ? {from: op_value, include_lower: false} : {gt: op_value}
+                    below90? && !serverless? ? {from: op_value, include_lower: false} : {gt: op_value}
                   when :gte
                     # TODO always use gte in Searchkick 6
-                    below90? ? {from: op_value, include_lower: true} : {gte: op_value}
+                    below90? && !serverless? ? {from: op_value, include_lower: true} : {gte: op_value}
                   when :lt
                     # TODO always use lt in Searchkick 6
-                    below90? ? {to: op_value, include_upper: false} : {lt: op_value}
+                    below90? && !serverless? ? {to: op_value, include_upper: false} : {lt: op_value}
                   when :lte
                     # TODO always use lte in Searchkick 6
-                    below90? ? {to: op_value, include_upper: true} : {lte: op_value}
+                    below90? && !serverless? ? {to: op_value, include_upper: true} : {lte: op_value}
                   else
                     raise ArgumentError, "Unknown where operator: #{op.inspect}"
                   end
@@ -1289,7 +1309,7 @@ module Searchkick
     end
 
     def base_field(k)
-      k.sub(/\.(analyzed|word_start|word_middle|word_end|text_start|text_middle|text_end|exact)\z/, "")
+      k.sub(/\.(analyzed|word_search|text_search|exact)\z/, "")
     end
 
     def track_total_hits?
@@ -1318,6 +1338,10 @@ module Searchkick
 
     def below90?
       Searchkick.server_below?("9.0.0")
+    end
+
+    def serverless?
+      Searchkick.serverless?
     end
   end
 end
